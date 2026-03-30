@@ -1,0 +1,12 @@
+[package]
+name = "platformer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avian2d = "0.6.1"
+bevy = "0.18.1"
+crossbeam-channel = "0.5.15"
+serde = { version = "1.0.0", features = ["derive"] }
+bincode = "1.0.0"
+tokio = { version = "1.50.0", features = ["full"] }
