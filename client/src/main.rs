@@ -4,7 +4,9 @@ use bevy::prelude::*;
 mod player;
 mod camera;
 mod setup;
-mod constants;
+use shared::constants;
+
+
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, PhysicsPlugins::default()))

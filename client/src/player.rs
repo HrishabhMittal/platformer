@@ -5,8 +5,7 @@ pub struct Player;
 #[derive(Component)]
 pub struct CursorCircle;
 
-use crate::constants::{MAX_VELOCITY,GRAVITY};
-
+use crate::constants::{GRAVITY, MAX_VELOCITY};
 
 pub fn player_movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -16,23 +15,27 @@ pub fn player_movement(
         let accel_rate = 5000.0;
         let jump_force = 500.0;
         let friction = 0.1;
-        if keyboard_input.pressed(KeyCode::KeyA) {
+        let key_left =
+            keyboard_input.pressed(KeyCode::KeyA) || keyboard_input.pressed(KeyCode::ArrowLeft);
+        let key_right =
+            keyboard_input.pressed(KeyCode::KeyD) || keyboard_input.pressed(KeyCode::ArrowRight);
+        let booster =
+            keyboard_input.pressed(KeyCode::Space) || keyboard_input.pressed(KeyCode::KeyW);
+        if key_left && !key_right {
             acceleration.x = -accel_rate * (1.0 - velocity.x.abs() / MAX_VELOCITY);
-        } else if keyboard_input.pressed(KeyCode::KeyD) {
+        } else if key_right && !key_left {
             acceleration.x = accel_rate * (1.0 - velocity.x / MAX_VELOCITY);
         } else {
             acceleration.x = 0.0;
             velocity.x *= 1.0 - friction;
         }
-        if keyboard_input.pressed(KeyCode::Space) {
-            acceleration.y = jump_force
-                * (1.0 - velocity.y / MAX_VELOCITY)
-                + GRAVITY;
+        if booster {
+            acceleration.y = jump_force * (1.0 - velocity.y / MAX_VELOCITY) + GRAVITY;
         } else {
             acceleration.y = 0.0;
         }
-        if velocity.y < -MAX_VELOCITY*3.0 {
-            velocity.y = -MAX_VELOCITY*3.0;
+        if velocity.y < -MAX_VELOCITY * 3.0 {
+            velocity.y = -MAX_VELOCITY * 3.0;
         }
     }
 }

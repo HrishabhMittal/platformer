@@ -1,22 +1,24 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
-use crate::player::{CursorCircle, Player};
 use crate::camera::MainCamera;
+use crate::player::{CursorCircle, Player};
 
 pub fn setup(mut commands: Commands) {
     commands.spawn((Camera2d, MainCamera));
 
-    commands.spawn((
-        Sprite {
-            color: Color::srgb(0.2, 0.8, 0.2),
-            custom_size: Some(Vec2::new(800.0, 50.0)),
-            ..default()
-        },
-        Transform::from_xyz(0.0, -250.0, 0.0),
-        RigidBody::Static,
-        Collider::rectangle(800.0, 50.0),
-    ));
+    for i in 0..10 {
+        commands.spawn((
+            Sprite {
+                color: Color::srgb(0.2, 0.8, 0.2),
+                custom_size: Some(Vec2::new(800.0, 50.0)),
+                ..default()
+            },
+            Transform::from_xyz(i as f32 * 1000.0, -250.0, 0.0),
+            RigidBody::Static,
+            Collider::rectangle(800.0, 50.0),
+        ));
+    }
 
     commands.spawn((
         Sprite {
