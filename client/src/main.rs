@@ -13,7 +13,7 @@ use shared::network::{ClientMessage, ServerMessage, Vec2};
 fn main() {
     let (mut rl, thread) = raylib::init()
         .size(1280, 720)
-        .title("Raylib Platformer")
+        .title("Platformer")
         .build();
 
     rl.set_target_fps(100);

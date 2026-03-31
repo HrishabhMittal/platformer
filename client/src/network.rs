@@ -14,7 +14,8 @@ pub fn spawn_client() -> (
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
-            if let Err(e) = socket.connect("127.0.0.1:8080").await {
+            let ip = "127.0.0.1";
+            if let Err(e) = socket.connect(format!("{ip}:8080")).await {
                 eprintln!("Failed to connect UDP socket: {}", e);
                 return;
             }
