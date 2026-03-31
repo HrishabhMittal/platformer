@@ -44,10 +44,14 @@ async fn main() {
     tokio::spawn(async move {
         while let Some(msg) = rx_bcast.recv().await {
             let encoded = bincode::serialize(&msg).unwrap();
-            let directory = dir_sender.lock().await;
+            let mut directory = dir_sender.lock().await;
 
             for (_, addr) in directory.iter() {
                 let _ = socket_sender.send_to(&encoded, *addr).await;
+            }
+
+            if let ServerMessage::PlayerLeft { id } = msg {
+                directory.remove(&id);
             }
         }
     });
@@ -100,20 +104,28 @@ async fn game_tick_loop(
         while let Ok(msg) = rx_input.try_recv() {
             apply_client_obj(&mut state, msg);
         }
+        let mut to_remove = Vec::new();
         for (&id, player) in &state.players {
-            let _ = tx_bcast
-                .send(ServerMessage::PlayerMoved {
-                    id,
-                    position: Vec2::new(player.x, player.y),
-                })
-                .await;
-
-            let _ = tx_bcast
-                .send(ServerMessage::PlayerMouseMoved {
-                    id,
-                    position: Vec2::new(player.cursor_x, player.cursor_y),
-                })
-                .await;
+            if player.last_seen.elapsed().as_secs() > 5 {
+                let _ = tx_bcast.send(ServerMessage::PlayerLeft { id }).await;
+                to_remove.push(id);
+            } else {
+                let _ = tx_bcast
+                    .send(ServerMessage::PlayerMoved {
+                        id,
+                        position: Vec2::new(player.x, player.y),
+                    })
+                    .await;
+                let _ = tx_bcast
+                    .send(ServerMessage::PlayerMouseMoved {
+                        id,
+                        position: Vec2::new(player.cursor_x, player.cursor_y),
+                    })
+                    .await;
+            }
+        }
+        for i in to_remove {
+            let _ = &state.players.remove(&i);
         }
     }
 }
