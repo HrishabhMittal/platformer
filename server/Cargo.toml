@@ -7,3 +7,4 @@ edition = "2024"
 shared = { path = "../shared" }
 tokio = { version = "1", features = ["full"] }
 bincode = "1.0.0"
+bevy_math = { version = "0.14", features = ["serialize"] }

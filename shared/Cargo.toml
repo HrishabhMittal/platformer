@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-bevy_math = "0.18.1"
+bevy_math = { version = "0.14", features = ["serialize"] }
