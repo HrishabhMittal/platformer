@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tokio::time;
 use tokio::time::Duration;
-
+use shared::network::Vec2;
 use shared::constants::TICK_PER_SECOND;
 use shared::network::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -62,7 +62,7 @@ async fn game_tick_loop(
         for (&id, player) in &state.players {
             let _ = tx_bcast.send(ServerMessage::PlayerMoved {
                 id,
-                position: bevy_math::Vec2::new(player.x, player.y),
+                position: Vec2::new(player.x, player.y),
             });
         }
     }
