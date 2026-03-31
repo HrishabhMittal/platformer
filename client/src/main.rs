@@ -1,25 +1,29 @@
 mod collision;
 mod defs;
+mod network;
+
+use std::collections::HashMap;
 
 use collision::resolve_player_collisions;
 use defs::*;
 use raylib::prelude::*;
 
-
+use collision::PlayerMovement;
+use shared::network::{ClientMessage, ServerMessage, Vec2};
 fn main() {
     let (mut rl, thread) = raylib::init()
         .size(1280, 720)
         .title("Raylib Platformer")
         .build();
 
-    rl.set_target_fps(60);
-
+    rl.set_target_fps(100);
+    let size = Vector2::new(50.0, 50.0);
     let mut player = Player {
         pos: Vector2::new(0.0, -100.0),
         vel: Vector2::zero(),
-        size: Vector2::new(50.0, 50.0),
+        mouse: Vector2::zero(),
     };
-
+    let mut enemies: HashMap<u32, Player> = HashMap::new();
     let mut platforms = Vec::new();
     for i in 0..10 {
         platforms.push(Platform {
@@ -34,15 +38,61 @@ fn main() {
         zoom: 1.0,
     };
 
+    let (tx, rx) = network::spawn_client();
+    let mut my_id: Option<u32> = None;
+
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
-
-        resolve_player_collisions(&rl, &mut player, &platforms, dt);
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                ServerMessage::NotifyId { id } => {
+                    my_id = Some(id);
+                }
+                ServerMessage::PlayerMoved { id, position } => {
+                    if Some(id) != my_id {
+                        let enemy = enemies.entry(id).or_insert(Player {
+                            pos: Vector2::new(position.x, position.y),
+                            vel: Vector2::zero(),
+                            mouse: Vector2::zero(),
+                        });
+                        enemy.pos.x = position.x;
+                        enemy.pos.y = position.y;
+                    }
+                }
+                ServerMessage::PlayerMouseMoved { id, position } => {
+                    if Some(id) != my_id {
+                        if let Some(enemy) = enemies.get_mut(&id) {
+                            enemy.mouse.x = position.x;
+                            enemy.mouse.y = position.y;
+                        }
+                    }
+                }
+                ServerMessage::PlayerLeft { id } => {
+                    enemies.remove(&id);
+                }
+                ServerMessage::PlayerJoined { id: _ } => {}
+            }
+        }
+        let pmove = PlayerMovement {
+            left: rl.is_key_down(KeyboardKey::KEY_A) || rl.is_key_down(KeyboardKey::KEY_LEFT),
+            right: rl.is_key_down(KeyboardKey::KEY_D) || rl.is_key_down(KeyboardKey::KEY_RIGHT),
+            up: rl.is_key_down(KeyboardKey::KEY_SPACE) || rl.is_key_down(KeyboardKey::KEY_W),
+        };
+        resolve_player_collisions(&rl, &mut player, &size, &pmove, &platforms, dt);
 
         camera.target = player.pos;
 
         let mouse_pos = rl.get_mouse_position();
         let world_mouse = rl.get_screen_to_world2D(mouse_pos, camera);
+
+        player.mouse = world_mouse;
+
+        let _ = tx.send(ClientMessage::PositionUpdate {
+            position: Vec2::new(player.pos.x, player.pos.y),
+        });
+        let _ = tx.send(ClientMessage::MouseUpdate {
+            position: Vec2::new(player.mouse.x, player.mouse.y),
+        });
 
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::BLACK);
@@ -55,19 +105,34 @@ fn main() {
             }
 
             d2.draw_rectangle(
-                (player.pos.x - player.size.x / 2.0) as i32,
-                (player.pos.y - player.size.y / 2.0) as i32,
-                player.size.x as i32,
-                player.size.y as i32,
+                (player.pos.x - size.x / 2.0) as i32,
+                (player.pos.y - size.y / 2.0) as i32,
+                size.x as i32,
+                size.y as i32,
                 Color::new(204, 51, 51, 255),
             );
-
             d2.draw_circle(
-                world_mouse.x as i32,
-                world_mouse.y as i32,
+                player.mouse.x as i32,
+                player.mouse.y as i32,
                 15.0,
                 Color::new(255, 255, 0, 128),
             );
+            for (_, enemy) in &enemies {
+                d2.draw_rectangle(
+                    (enemy.pos.x - size.x / 2.0) as i32,
+                    (enemy.pos.y - size.y / 2.0) as i32,
+                    size.x as i32,
+                    size.y as i32,
+                    Color::new(51, 51, 204, 255),
+                );
+
+                d2.draw_circle(
+                    enemy.mouse.x as i32,
+                    enemy.mouse.y as i32,
+                    15.0,
+                    Color::new(255, 0, 255, 128),
+                );
+            }
         }
     }
 }

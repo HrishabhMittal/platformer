@@ -12,7 +12,6 @@ impl Vec2 {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientMessage {
     PositionUpdate { position: Vec2 },

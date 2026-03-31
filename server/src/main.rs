@@ -1,51 +1,91 @@
-use std::collections::HashMap;
-use tokio::time;
-use tokio::time::Duration;
-use shared::network::Vec2;
 use shared::constants::TICK_PER_SECOND;
 use shared::network::*;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, mpsc};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::net::UdpSocket;
+use tokio::sync::{Mutex, mpsc};
+use tokio::time::{self, Duration};
 
 struct PlayerState {
     x: f32,
     y: f32,
     cursor_x: f32,
     cursor_y: f32,
+    last_seen: tokio::time::Instant,
 }
 
 struct GlobalState {
     players: HashMap<u32, PlayerState>,
 }
 
+type ClientDirectory = Arc<Mutex<HashMap<u32, SocketAddr>>>;
+
 #[tokio::main]
 async fn main() {
-    let host = "127.0.0.1";
+    let host = "0.0.0.0";
     let port = 8080;
     let address = format!("{host}:{port}");
-    println!("listening on {address}");
-    let listener = TcpListener::bind(address).await.unwrap();
-    let (tx, rx) = mpsc::channel::<ClientObject>(1024);
-    let (broadcast_tx, _) = broadcast::channel::<ServerMessage>(1024);
-    let mut id: u32 = 0;
-    let tx_bcast_clone = broadcast_tx.clone();
+    println!("UDP Server listening on {address}");
+
+    let socket = Arc::new(UdpSocket::bind(address).await.unwrap());
+
+    let (tx_input, rx_input) = mpsc::channel::<ClientObject>(1024);
+    let (tx_bcast, mut rx_bcast) = mpsc::channel::<ServerMessage>(1024);
+
+    let client_directory: ClientDirectory = Arc::new(Mutex::new(HashMap::new()));
+
     tokio::spawn(async move {
-        game_tick_loop(rx, tx_bcast_clone).await;
+        game_tick_loop(rx_input, tx_bcast).await;
     });
+
+    let socket_sender = socket.clone();
+    let dir_sender = client_directory.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = rx_bcast.recv().await {
+            let encoded = bincode::serialize(&msg).unwrap();
+            let directory = dir_sender.lock().await;
+
+            for (_, addr) in directory.iter() {
+                let _ = socket_sender.send_to(&encoded, *addr).await;
+            }
+        }
+    });
+
+    let mut buf = [0; 1024];
+    let mut next_id: u32 = 0;
+    let mut addr_to_id: HashMap<SocketAddr, u32> = HashMap::new();
+
     loop {
-        let (socket, _) = listener.accept().await.unwrap();
-        let tx_copy = tx.clone();
-        let broadcast_tx = broadcast_tx.subscribe();
-        tokio::spawn(async move {
-            client_handler(id, socket, tx_copy, broadcast_tx).await;
-        });
-        id += 1;
+        if let Ok((len, addr)) = socket.recv_from(&mut buf).await {
+            let id = if let Some(&existing_id) = addr_to_id.get(&addr) {
+                existing_id
+            } else {
+                println!("New connection from {}", addr);
+                let new_id = next_id;
+                next_id += 1;
+
+                addr_to_id.insert(addr, new_id);
+                client_directory.lock().await.insert(new_id, addr);
+
+                let welcome_msg = ServerMessage::NotifyId { id: new_id };
+                let encoded = bincode::serialize(&welcome_msg).unwrap();
+                let _ = socket.send_to(&encoded, addr).await;
+
+                new_id
+            };
+
+            if let Ok(client_message) = bincode::deserialize::<ClientMessage>(&buf[..len]) {
+                let obj = ClientObject { id, client_message };
+                let _ = tx_input.send(obj).await;
+            }
+        }
     }
 }
+
 async fn game_tick_loop(
     mut rx_input: mpsc::Receiver<ClientObject>,
-    tx_bcast: broadcast::Sender<ServerMessage>,
+    tx_bcast: mpsc::Sender<ServerMessage>,
 ) {
     let tick_duration = Duration::from_secs_f32(1.0 / TICK_PER_SECOND);
     let mut interval = time::interval(tick_duration);
@@ -56,78 +96,46 @@ async fn game_tick_loop(
 
     loop {
         interval.tick().await;
+
         while let Ok(msg) = rx_input.try_recv() {
             apply_client_obj(&mut state, msg);
         }
         for (&id, player) in &state.players {
-            let _ = tx_bcast.send(ServerMessage::PlayerMoved {
-                id,
-                position: Vec2::new(player.x, player.y),
-            });
+            let _ = tx_bcast
+                .send(ServerMessage::PlayerMoved {
+                    id,
+                    position: Vec2::new(player.x, player.y),
+                })
+                .await;
+
+            let _ = tx_bcast
+                .send(ServerMessage::PlayerMouseMoved {
+                    id,
+                    position: Vec2::new(player.cursor_x, player.cursor_y),
+                })
+                .await;
         }
     }
 }
-async fn client_handler(
-    id: u32,
-    socket: TcpStream,
-    sender: mpsc::Sender<ClientObject>,
-    mut bcast: broadcast::Receiver<ServerMessage>,
-) {
-    println!("new connection: {id}");
-    let (mut reader, mut writer) = socket.into_split();
 
-    let mut writer_end = tokio::spawn(async move {
-        let id = ServerMessage::NotifyId { id };
-        let msg = bincode::serialize(&id).unwrap();
-        if writer.write_all(&msg).await.is_err() {
-            return;
-        }
-        while let Ok(msg) = bcast.recv().await {
-            let encoded = bincode::serialize(&msg).unwrap();
-            if writer.write_all(&encoded).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    let mut reader_end = tokio::spawn(async move {
-        let mut buf = [0; 1024];
-        loop {
-            match reader.read(&mut buf[..]).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    if let Ok(client_message) = bincode::deserialize::<ClientMessage>(&buf[..n]) {
-                        let msg = ClientObject { id, client_message };
-                        if sender.send(msg).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-    tokio::select! {
-        _ = &mut reader_end => writer_end.abort(),
-        _ = &mut writer_end => reader_end.abort(),
-    }
-    println!("client disconnected: {id}");
-}
 fn apply_client_obj(state: &mut GlobalState, obj: ClientObject) {
     let player = state.players.entry(obj.id).or_insert(PlayerState {
         x: 0.0,
         y: 0.0,
         cursor_x: 0.0,
         cursor_y: 0.0,
+        last_seen: tokio::time::Instant::now(),
     });
     match obj.client_message {
         ClientMessage::PositionUpdate { position } => {
             player.x = position.x;
             player.y = position.y;
+            player.last_seen = tokio::time::Instant::now();
         }
         ClientMessage::MouseUpdate { position } => {
             player.cursor_x = position.x;
             player.cursor_y = position.y;
+            player.last_seen = tokio::time::Instant::now();
         }
     }
 }
