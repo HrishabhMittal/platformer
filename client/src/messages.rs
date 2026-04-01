@@ -4,31 +4,41 @@ use std::collections::HashMap;
 
 use shared::network::ServerMessage;
 use tokio::sync::mpsc;
-pub fn handle_msgs(enemies: &mut HashMap<u32, Player>, rx: &mut mpsc::Receiver<ServerMessage>) {
-    let mut my_id: Option<u32> = None;
+pub fn handle_msgs(
+    my_id: &mut Option<u32>,
+    enemies: &mut HashMap<u32, PlayerInterpolater>,
+    rx: &mut mpsc::Receiver<ServerMessage>,
+) {
     while let Ok(msg) = rx.try_recv() {
         match msg {
             ServerMessage::NotifyId { id } => {
-                my_id = Some(id);
+                *my_id = Some(id);
             }
             ServerMessage::PlayerMoved { id, position } => {
-                if Some(id) != my_id {
-                    let enemy = enemies.entry(id).or_insert(Player {
-                        pos: Vector2::new(position.x, position.y),
-                        vel: Vector2::zero(),
-                        mouse: Vector2::zero(),
+                // if Some(id) != *my_id {
+                    let pos = Vector2::new(position.x, position.y);
+                    let enemy = enemies.entry(id).or_insert_with(|| {
+                        PlayerInterpolater::from(Player {
+                            pos,
+                            vel: Vector2::zero(),
+                            mouse: Vector2::zero(),
+                        })
                     });
-                    enemy.pos.x = position.x;
-                    enemy.pos.y = position.y;
-                }
+                    enemy.update_pos(pos);
+                // }
             }
             ServerMessage::PlayerMouseMoved { id, position } => {
-                if Some(id) != my_id {
-                    if let Some(enemy) = enemies.get_mut(&id) {
-                        enemy.mouse.x = position.x;
-                        enemy.mouse.y = position.y;
-                    }
-                }
+                // if Some(id) != *my_id {
+                    let mouse_pos = Vector2::new(position.x, position.y);
+                    let enemy = enemies.entry(id).or_insert_with(|| {
+                        PlayerInterpolater::from(Player {
+                            pos: Vector2::zero(),
+                            vel: Vector2::zero(),
+                            mouse: mouse_pos,
+                        })
+                    });
+                    enemy.update_mouse(mouse_pos);
+                // }
             }
             ServerMessage::PlayerLeft { id } => {
                 enemies.remove(&id);

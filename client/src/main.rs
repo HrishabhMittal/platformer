@@ -16,14 +16,14 @@ use shared::network::{ClientMessage, Vec2};
 fn main() {
     let (mut rl, thread) = raylib::init().size(1280, 720).title("Platformer").build();
 
-    rl.set_target_fps(100);
+    rl.set_target_fps(60);
     let size = Vector2::new(50.0, 50.0);
     let mut player = Player {
         pos: Vector2::new(0.0, -100.0),
         vel: Vector2::zero(),
         mouse: Vector2::zero(),
     };
-    let mut enemies: HashMap<u32, Player> = HashMap::new();
+    let mut enemies: HashMap<u32, PlayerInterpolater> = HashMap::new();
     let mut platforms = Vec::new();
     for i in 0..10 {
         platforms.push(Platform {
@@ -40,10 +40,11 @@ fn main() {
 
     let (tx, mut rx) = network::spawn_client();
 
+    let mut my_id: Option<u32> = None;
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
 
-        handle_msgs(&mut enemies, &mut rx);
+        handle_msgs(&mut my_id, &mut enemies, &mut rx);
 
         let pmove = PlayerMovement {
             left: rl.is_key_down(KeyboardKey::KEY_A) || rl.is_key_down(KeyboardKey::KEY_LEFT),
@@ -89,18 +90,24 @@ fn main() {
                 15.0,
                 Color::new(255, 255, 0, 128),
             );
-            for (_, enemy) in &enemies {
+            for (id, enemy) in &enemies {
+                // if let Some(my_id) = my_id
+                //     && my_id == *id
+                // {
+                //     continue;
+                // }
+                let interpolated = enemy.interpolate();
                 d2.draw_rectangle(
-                    (enemy.pos.x - size.x / 2.0) as i32,
-                    (enemy.pos.y - size.y / 2.0) as i32,
+                    (interpolated.pos.x - size.x / 2.0) as i32,
+                    (interpolated.pos.y - size.y / 2.0) as i32,
                     size.x as i32,
                     size.y as i32,
                     Color::new(51, 51, 204, 255),
                 );
 
                 d2.draw_circle(
-                    enemy.mouse.x as i32,
-                    enemy.mouse.y as i32,
+                    interpolated.mouse.x as i32,
+                    interpolated.mouse.y as i32,
                     15.0,
                     Color::new(255, 0, 255, 128),
                 );
