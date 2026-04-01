@@ -1,20 +1,20 @@
 mod collision;
 mod defs;
+mod messages;
 mod network;
 
-use std::collections::HashMap;
-
-use collision::resolve_player_collisions;
 use defs::*;
 use raylib::prelude::*;
+use std::collections::HashMap;
 
 use collision::PlayerMovement;
-use shared::network::{ClientMessage, ServerMessage, Vec2};
+use collision::resolve_player_collisions;
+use messages::handle_msgs;
+
+use shared::network::{ClientMessage, Vec2};
+
 fn main() {
-    let (mut rl, thread) = raylib::init()
-        .size(1280, 720)
-        .title("Platformer")
-        .build();
+    let (mut rl, thread) = raylib::init().size(1280, 720).title("Platformer").build();
 
     rl.set_target_fps(100);
     let size = Vector2::new(50.0, 50.0);
@@ -38,41 +38,13 @@ fn main() {
         zoom: 1.0,
     };
 
-    let (tx, rx) = network::spawn_client();
-    let mut my_id: Option<u32> = None;
+    let (tx, mut rx) = network::spawn_client();
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
-        while let Ok(msg) = rx.try_recv() {
-            match msg {
-                ServerMessage::NotifyId { id } => {
-                    my_id = Some(id);
-                }
-                ServerMessage::PlayerMoved { id, position } => {
-                    if Some(id) != my_id {
-                        let enemy = enemies.entry(id).or_insert(Player {
-                            pos: Vector2::new(position.x, position.y),
-                            vel: Vector2::zero(),
-                            mouse: Vector2::zero(),
-                        });
-                        enemy.pos.x = position.x;
-                        enemy.pos.y = position.y;
-                    }
-                }
-                ServerMessage::PlayerMouseMoved { id, position } => {
-                    if Some(id) != my_id {
-                        if let Some(enemy) = enemies.get_mut(&id) {
-                            enemy.mouse.x = position.x;
-                            enemy.mouse.y = position.y;
-                        }
-                    }
-                }
-                ServerMessage::PlayerLeft { id } => {
-                    enemies.remove(&id);
-                }
-                ServerMessage::PlayerJoined { id: _ } => {}
-            }
-        }
+
+        handle_msgs(&mut enemies, &mut rx);
+
         let pmove = PlayerMovement {
             left: rl.is_key_down(KeyboardKey::KEY_A) || rl.is_key_down(KeyboardKey::KEY_LEFT),
             right: rl.is_key_down(KeyboardKey::KEY_D) || rl.is_key_down(KeyboardKey::KEY_RIGHT),
