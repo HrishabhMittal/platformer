@@ -1,8 +1,10 @@
 use raylib::math::{Rectangle, Vector2};
+use shared::constants::MAX_HP;
 use tokio::time::Instant;
 
 #[derive(Clone)]
 pub struct Player {
+    pub health: u32,
     pub pos: Vector2,
     pub vel: Vector2,
     pub mouse: Vector2,
@@ -11,6 +13,7 @@ pub struct Player {
 impl Player {
     pub fn new() -> Self {
         Self {
+            health: MAX_HP,
             pos: Vector2::new(0.0, 0.0),
             vel: Vector2::new(0.0, 0.0),
             mouse: Vector2::new(0.0, 0.0),
@@ -29,10 +32,14 @@ pub struct TimeStampedPlayer {
 
 impl TimeStampedPlayer {
     pub fn new() -> Self {
-        Self { player: Player::new(), time: Instant::now() }
+        Self {
+            player: Player::new(),
+            time: Instant::now(),
+        }
     }
 }
 pub struct PlayerInterpolater {
+    to_shoot: u32,
     mouse_moved: bool,
     pos_moved: bool,
     old: Option<TimeStampedPlayer>,
@@ -42,6 +49,7 @@ pub struct PlayerInterpolater {
 impl PlayerInterpolater {
     pub fn from(p: Player) -> Self {
         Self {
+            to_shoot: 0,
             mouse_moved: false,
             pos_moved: false,
             old: None,
@@ -49,6 +57,23 @@ impl PlayerInterpolater {
                 player: p,
                 time: Instant::now(),
             }),
+        }
+    }
+    pub fn inc_shots(&mut self) {
+        self.to_shoot += 1;
+    }
+
+    pub fn shoot(&mut self) -> bool {
+        if self.to_shoot > 0 {
+            self.to_shoot -= 1;
+            true
+        } else {
+            false
+        }
+    }
+    pub fn health_change(&mut self, hp: u32) {
+        if let Some(some) = &mut self.new {
+            some.player.health = hp;
         }
     }
     pub fn update_time(&mut self, player: TimeStampedPlayer) {
@@ -107,6 +132,7 @@ impl PlayerInterpolater {
                 }
 
                 Player {
+                    health: new_p.player.health,
                     pos: ((new_p.player.pos - old_p.player.pos) / total_delta_time)
                         * time_since_old
                         + old_p.player.pos,

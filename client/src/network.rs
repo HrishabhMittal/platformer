@@ -1,3 +1,4 @@
+use shared::constants::HOST_IP;
 use shared::network::{ClientMessage, ServerMessage};
 use std::sync::Arc;
 use std::thread;
@@ -13,7 +14,7 @@ pub fn spawn_client() -> (
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
-            let ip = "10.212.9.94";
+            let ip = HOST_IP;
             if let Err(e) = socket.connect(format!("{ip}:8080")).await {
                 eprintln!("Failed to connect UDP socket: {}", e);
                 return;

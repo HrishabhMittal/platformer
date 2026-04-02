@@ -5,6 +5,7 @@ pub struct PlayerMovement {
     pub left: bool,
     pub right: bool,
     pub up: bool,
+    pub mouseclicked: bool,
 }
 pub fn resolve_player_collisions(
     rl: &RaylibHandle,

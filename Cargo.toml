@@ -3,7 +3,8 @@ resolver = "2"
 members = [
     "shared",
     "client",
-    "server"
+    "server",
+    "test"
 ]
 [profile.dev]
 debug = 1 

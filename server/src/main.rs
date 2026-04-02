@@ -149,5 +149,8 @@ fn apply_client_obj(state: &mut GlobalState, obj: ClientObject) {
             player.cursor_y = position.y;
             player.last_seen = tokio::time::Instant::now();
         }
+        ClientMessage::Shoot => {
+
+        }
     }
 }

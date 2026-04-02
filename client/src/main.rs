@@ -5,6 +5,7 @@ mod network;
 
 use defs::*;
 use raylib::prelude::*;
+use shared::constants::MAX_HP;
 use std::collections::HashMap;
 
 use collision::PlayerMovement;
@@ -19,6 +20,7 @@ fn main() {
     rl.set_target_fps(60);
     let size = Vector2::new(50.0, 50.0);
     let mut player = Player {
+        health: MAX_HP,
         pos: Vector2::new(0.0, -100.0),
         vel: Vector2::zero(),
         mouse: Vector2::zero(),
@@ -50,6 +52,7 @@ fn main() {
             left: rl.is_key_down(KeyboardKey::KEY_A) || rl.is_key_down(KeyboardKey::KEY_LEFT),
             right: rl.is_key_down(KeyboardKey::KEY_D) || rl.is_key_down(KeyboardKey::KEY_RIGHT),
             up: rl.is_key_down(KeyboardKey::KEY_SPACE) || rl.is_key_down(KeyboardKey::KEY_W),
+            mouseclicked: rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT),
         };
         resolve_player_collisions(&rl, &mut player, &size, &pmove, &platforms, dt);
 
@@ -66,7 +69,9 @@ fn main() {
         let _ = tx.send(ClientMessage::MouseUpdate {
             position: Vec2::new(player.mouse.x, player.mouse.y),
         });
-
+        if pmove.mouseclicked {
+            let _ = tx.send(ClientMessage::Shoot);
+        }
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::BLACK);
 
@@ -76,10 +81,10 @@ fn main() {
             for p in &platforms {
                 d2.draw_rectangle_rec(&p.rect, Color::new(51, 204, 51, 255));
             }
-
+            let top_left = Vec2::new(player.pos.x - size.x / 2.0, player.pos.y - size.y / 2.0);
             d2.draw_rectangle(
-                (player.pos.x - size.x / 2.0) as i32,
-                (player.pos.y - size.y / 2.0) as i32,
+                top_left.x as i32,
+                top_left.y as i32,
                 size.x as i32,
                 size.y as i32,
                 Color::new(204, 51, 51, 255),
@@ -90,7 +95,16 @@ fn main() {
                 15.0,
                 Color::new(255, 255, 0, 128),
             );
-            for (id, enemy) in &enemies {
+            if pmove.mouseclicked {
+                d2.draw_line(
+                    player.pos.x as i32,
+                    player.pos.y as i32,
+                    player.mouse.x as i32,
+                    player.mouse.y as i32,
+                    Color::TEAL,
+                );
+            }
+            for (_id, enemy) in &enemies {
                 // if let Some(my_id) = my_id
                 //     && my_id == *id
                 // {
