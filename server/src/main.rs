@@ -1,4 +1,4 @@
-use shared::constants::TICK_PER_SECOND;
+use shared::constants::{DAMAGE_PER_SHOT, MAX_HP, PLAYER_SIZE, TICK_PER_SECOND};
 use shared::network::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -12,6 +12,7 @@ struct PlayerState {
     y: f32,
     cursor_x: f32,
     cursor_y: f32,
+    health: u32,
     last_seen: tokio::time::Instant,
 }
 
@@ -102,14 +103,18 @@ async fn game_tick_loop(
         interval.tick().await;
 
         while let Ok(msg) = rx_input.try_recv() {
-            apply_client_obj(&mut state, msg);
+            let events = apply_client_obj(&mut state, msg);
+            for event in events {
+                let _ = tx_bcast.send(event).await;
+            }
         }
         let mut to_remove = Vec::new();
         for (&id, player) in &state.players {
             if player.last_seen.elapsed().as_secs() > 5 {
                 let _ = tx_bcast.send(ServerMessage::PlayerLeft { id }).await;
                 to_remove.push(id);
-            } else {
+            // ONLY BROADCAST ALIVE PLAYERS
+            } else if player.health > 0 { 
                 let _ = tx_bcast
                     .send(ServerMessage::PlayerMoved {
                         id,
@@ -125,32 +130,87 @@ async fn game_tick_loop(
             }
         }
         for i in to_remove {
-            let _ = &state.players.remove(&i);
+            state.players.remove(&i);
         }
     }
 }
 
-fn apply_client_obj(state: &mut GlobalState, obj: ClientObject) {
-    let player = state.players.entry(obj.id).or_insert(PlayerState {
-        x: 0.0,
-        y: 0.0,
-        cursor_x: 0.0,
-        cursor_y: 0.0,
-        last_seen: tokio::time::Instant::now(),
-    });
-    match obj.client_message {
-        ClientMessage::PositionUpdate { position } => {
-            player.x = position.x;
-            player.y = position.y;
-            player.last_seen = tokio::time::Instant::now();
-        }
-        ClientMessage::MouseUpdate { position } => {
-            player.cursor_x = position.x;
-            player.cursor_y = position.y;
-            player.last_seen = tokio::time::Instant::now();
-        }
-        ClientMessage::Shoot => {
+fn apply_client_obj(state: &mut GlobalState, obj: ClientObject) -> Vec<ServerMessage> {
+    let mut events = Vec::new();
 
+    if !state.players.contains_key(&obj.id) {
+        state.players.insert(
+            obj.id,
+            PlayerState {
+                x: 0.0,
+                y: 0.0,
+                cursor_x: 0.0,
+                cursor_y: 0.0,
+                health: MAX_HP,
+                last_seen: tokio::time::Instant::now(),
+            },
+        );
+    }
+
+    // UPDATE LAST SEEN, BUT IGNORE INPUTS IF THE PLAYER IS DEAD
+    if let Some(player) = state.players.get_mut(&obj.id) {
+        player.last_seen = tokio::time::Instant::now();
+        if player.health == 0 {
+            return events; 
         }
     }
+
+    match obj.client_message {
+        ClientMessage::PositionUpdate { position } => {
+            if let Some(player) = state.players.get_mut(&obj.id) {
+                player.x = position.x;
+                player.y = position.y;
+            }
+        }
+        ClientMessage::MouseUpdate { position } => {
+            if let Some(player) = state.players.get_mut(&obj.id) {
+                player.cursor_x = position.x;
+                player.cursor_y = position.y;
+            }
+        }
+        ClientMessage::Shoot => {
+            events.push(ServerMessage::PlayerShot { id: obj.id });
+
+            let shooter = state.players.get(&obj.id).unwrap();
+            let shooter_pos = Vec2::new(shooter.x, shooter.y);
+            let mouse_pos = Vec2::new(shooter.cursor_x, shooter.cursor_y);
+            let shooter_id = obj.id;
+
+            let mut hits = Vec::new();
+
+            for (&target_id, target) in state.players.iter() {
+                if target_id == shooter_id || target.health == 0 {
+                    continue;
+                }
+
+                let rect = (
+                    target.x - (PLAYER_SIZE / 2.0),
+                    target.y - (PLAYER_SIZE / 2.0),
+                    PLAYER_SIZE,
+                    PLAYER_SIZE,
+                );
+
+                if shared::math::is_target_hit(shooter_pos, mouse_pos, rect) {
+                    hits.push(target_id);
+                }
+            }
+
+            for target_id in hits {
+                if let Some(target) = state.players.get_mut(&target_id) {
+                    target.health = target.health.saturating_sub(DAMAGE_PER_SHOT);
+                    events.push(ServerMessage::PlayerHealthChange {
+                        id: target_id,
+                        health: target.health,
+                    });
+                }
+            }
+        }
+    }
+
+    events
 }
